@@ -25,9 +25,10 @@ while IFS=$'\t' read -r src dest; do
 done < "$MANIFEST"
 echo "mac files: $(wc -l < "$W/mac.sha")"
 
-# NAS side: hash exactly the copied trees (paths sent NUL-separated on stdin)
+# NAS side: hash exactly the copied trees (paths sent NUL-separated on stdin).
+# One file at a time: parallel hashing makes a hard disk seek between files (measured 45 vs 119 MB/s).
 tr '\n' '\0' < "$W/nas-paths.txt" |
-  $SSH "$NAS" 'xargs -0 -I{} find {} -type f ! -name .DS_Store -print0 | xargs -0 -P4 sha256sum' > "$W/nas.sha"
+  $SSH "$NAS" 'xargs -0 -I{} find {} -type f ! -name .DS_Store -print0 | xargs -0 sha256sum' > "$W/nas.sha"
 echo "nas files: $(wc -l < "$W/nas.sha")"
 
 # Every Mac line must appear verbatim (hash + path) on the NAS

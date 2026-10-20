@@ -152,4 +152,4 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 - 硬盘休眠：`hd-idle` 空闲 20 分钟后停转（Time Machine 每小时会唤醒一次，属于正常现象）。
 - 系统更新：`sudo apt full-upgrade`；固件更新：`sudo rpi-eeprom-update -a`。
 - **只有一块盘，没有冗余**。Time Machine 的备份本身就是第二份拷贝；但**只存在 NAS 上的重要文件，还要再备份到别处**。
-- 可选升级：加一块 NVMe 当写缓冲，见 [ssd-cache.md](ssd-cache.md) 和 [nvme-ssd-selection.md](nvme-ssd-selection.md)。
+- NVMe 缓存层（mergerfs + nas-tier 包含式 LRU）：见 [ssd-cache.md](ssd-cache.md)，选盘见 [nvme-ssd-selection.md](nvme-ssd-selection.md)。

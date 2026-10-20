@@ -43,6 +43,33 @@
 4. 买之前确认长度和 M-key；装 2280 的盘要确认 IO Board 上对应位置有固定螺丝。
 5. 固件：Pimoroni 建议 2023-12-06 以后的 EEPROM，这一版开始完整支持 PCIe 规范（`sudo rpi-eeprom-update`）。
 
+## 5. 实测：两块盘的结果（2026-10-20，CM5 IO Board，PCIe Gen 2 ×1）
+
+### ❌ 白牌「NVMe S990 512」：Linux 认不出来
+
+| 项目 | 结果 |
+|---|---|
+| PCI ID | 厂商 `0x1e95`（SSSTC），但子系统 ID 是 `0x126f:0x2263`（**Silicon Motion SM2263**），两者对不上；型号写的是 `NVMe S990 512`，固件版本 `V.01`，是典型的贴牌盘 |
+| SMART | 健康（磨损 0%，只写过 13 GB，没有错误），容量也确实有 512GB |
+| **问题** | 固件声称支持 NVMe 1.3，却不支持 Identify Namespace Descriptor List。内核报 `Identify Descriptors failed (nsid=1, status=0x2)`，结果**不生成 `nvme0n1` 块设备**，这块盘根本用不了 |
+| 能不能绕过 | 内核里有对应的 quirk（`NVME_QUIRK_NO_NS_DESC_LIST`），但树莓派的 6.18 内核**没有提供运行时修改 quirk 的参数**，内置的 quirk 表里也没有这个 ID。要用就只能自己改内核重新编译，不值得 |
+
+教训：**贴牌或白牌 NVMe 在 Linux 上可能直接用不了**，买大厂的型号。
+
+### ✅ Fanxiang S630 500GB：TLC，适合当缓存盘
+
+| 项目 | 结果 |
+|---|---|
+| 主控 | 英韧（Innogrit）IG5220（PCI ID `1dbe:5220`），没有 DRAM，用 HMB（32 MiB），固件 1.W.G.36 |
+| 识别 | 直接认出 `nvme0n1`，不需要任何 quirk |
+| 顺序读 | **455 MB/s**（盘头）/ **464 MB/s**（300GB 处），跑满 PCIe Gen 2 ×1 |
+| 持续写（先 `blkdiscard` 整盘，再用 fio 连续写 250 GiB 随机数据，1M 块，iodepth 8） | 前 0–190 GiB 是 **440 MB/s**（被 PCIe 卡住，属于 SLC 缓存）；200 GiB 时降到 303 MB/s；210–250 GiB **稳定在 265–273 MB/s**；平均 402 MB/s |
+| 判断 | SLC 缓存约 190 GiB（容量的 40% 左右），缓存写满后还有约 270 MB/s，而 QLC 盘这时一般只剩 60–150 MB/s → **TLC** |
+| 温度 | 测试前 23°C，测试中最高 **54°C**，没有降频 |
+| SMART | 磨损 0%，备用块 95%（新盘就已经用掉 5%，需要留意），媒体错误 0，写入量累计 771 GB |
+
+测试脚本在 NAS 上：`nvme-check.sh`（只读）和 `nvme-writetest.sh`（**会清空整块盘**，会先列出盘上的内容，要输入 YES 才执行）。
+
 ## 来源
 
 - [Pimoroni NVMe Base：实测兼容的 SSD 列表](https://thepihut.com/collections/latest-raspberry-pi-products/products/nvme-base-for-raspberry-pi-5-nvme-base)

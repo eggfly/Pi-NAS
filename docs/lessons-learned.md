@@ -116,3 +116,49 @@ mDNS 过不了路由器，`nas.local` 解析不到。把 Wi-Fi 路由器切成**
 跨两次 SSH 执行带引号的命令（比如 `ssh hostA ssh hostB "sudo sed -i 's/a b/c d/' file"`），每经过一次 SSH，shell 都会重新解析一遍，
 引号会被吃掉，`&&` 甚至可能在中间那台机器上执行。**把命令写成脚本文件传过去，再 `sudo bash script.sh` 执行**，就没有这个问题。
 传文件可以用 `base64` 编码后作为参数传递；多跳 SSH 下 stdin 不一定能传过去，实测会收到空文件。
+
+---
+
+## 10. smartd 的 `DEVICESCAN` 会让自己写的设备行失效
+
+Debian 自带的 `/etc/smartd.conf` 第一行有效配置就是 `DEVICESCAN ...`。**smartd 一旦读到 `DEVICESCAN`，后面的设备行全部忽略**，
+所以在后面追加的 `/dev/disk/by-id/usb-WD... -s (S/../.././02|L/../../6/03)` 根本不生效，定时自检也不会跑。
+解决：把 `DEVICESCAN` 那行注释掉，每个设备单独写一行（`setup-ssd-cache.sh` 已经包含这一步）。
+
+## 11. 长时间任务不要挂在终端的 SSH 会话上
+
+NVMe 写入测试跑在 `ssh -t ... sudo bash test.sh` 里，中途桌面 App 退出、SSH 断开，fio 就跟着被杀掉了。
+长任务要用 **`sudo systemd-run --unit=xxx ...`** 放进 systemd 里跑，断线也不受影响；进度用 `journalctl -u xxx` 看。
+
+## 12. sudo 有密码缓存，确认提示可能被一个回车「吃掉」
+
+刚输过 sudo 密码之后的几分钟内再执行 sudo，不会再要求输入密码，第一个出现的提示可能直接就是脚本里的 `Type YES:`。
+如果用户以为那是密码提示，随手按了回车，脚本就会读到空行，然后安全地中止。**格式化这类操作的确认提示要写清楚，别和密码提示混淆。**
+
+## 13. 清空磁盘前，先看看盘上到底有什么
+
+曾经只凭分区标签（`bootfs` / `rootfs`）就判断「这块 SSD 上只是个旧的树莓派系统」，没有挂载看过就清空了。这次刚好没有重要数据，下次未必。
+现在的脚本在格式化前会**先只读挂载各个分区，列出顶层目录和 `/home` 的大小**，再要求输入 YES。
+
+## 14. 卸载失败时不能让 Samba 一直停着
+
+`setup-ssd-cache.sh` 切换挂载点之前会先停掉 smbd。第一版在 `umount: target is busy` 时直接退出了，**smbd 就一直停着，Mac 连不上 NAS**。
+现在的做法：用 `trap ... ERR` 保证出错时自动重新启动 smbd；卸载失败时，用 `fuser -vm` 列出是谁占着目录，然后再退出。
+
+## 15. 分层搬运要保留 atime，否则冷文件会被当成热文件
+
+nas-tier 第一版用 `rsync -a` 把文件复制到硬盘，**新复制出来的文件 atime 是「现在」**。结果刚从 SSD 淘汰掉的冷文件，马上又被 promote 当成「最近读过」复制回 SSD，来回搬个不停。
+解决：复制时加 `rsync --atimes --open-noatime`，逐字节比对时用 `O_NOATIME` 打开文件。这个问题是在沙箱测试里抓到的，没有影响到真实数据。
+
+## 16. Finder 连 `NAS.local` 卡 5 秒：主机名要和 Bonjour 服务名一致
+
+Samba 用 netbios 名（`nas`）注册 Bonjour 服务，Finder 侧边栏里显示的是 **NAS**，连接时会先把 `NAS.local` 当成主机名去解析。
+但机器的主机名是树莓派默认的 `pi`，只有 `pi.local` 存在，结果每次连接都要等 `NAS.local` 解析超时：
+
+| 名字 | `getaddrinfo` 耗时 |
+|---|---|
+| `pi.local`（真实主机名） | 0.01 秒 |
+| `NAS.local`（Finder 用的名字） | **5.01 秒，最后失败** |
+
+解决：把主机名改成和服务名一样（[`scripts/rename-host.sh`](../scripts/rename-host.sh)：`hostnamectl` + `/etc/hosts` + 重启 avahi/smbd + `tailscale set --hostname`）。
+改完以后 `NAS.local` 0.02 秒就能解析出来，SMB 连接 0.01 秒。Time Machine 用的是 Bonjour 服务名，不受影响，不用重新设置。
