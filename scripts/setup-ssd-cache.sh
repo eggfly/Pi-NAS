@@ -106,6 +106,11 @@ trap - ERR
 echo "==> SMART: explicit device lines (Debian's DEVICESCAN line makes smartd ignore them)"
 sed -i 's/^DEVICESCAN/#DEVICESCAN/' /etc/smartd.conf
 grep -q "^/dev/nvme0 " /etc/smartd.conf || echo "/dev/nvme0 -d nvme -a -s (S/../.././02|L/../../7/03)" >> /etc/smartd.conf
+# Older setup-nas.sh lines: the USB HDD needs -d removable (not yet enumerated at boot) and -n standby
+sed -i -E '/^\/dev\/disk\/by-id\/usb-/{ /-d removable/! s/ -d sat / -d sat -d removable -n standby,10,q / }' /etc/smartd.conf
+mkdir -p /etc/systemd/system/smartmontools.service.d
+printf '[Unit]\nRequiresMountsFor=%s %s\n' "$HDD" "$SSD" > /etc/systemd/system/smartmontools.service.d/after-disks.conf
+systemctl daemon-reload
 systemctl restart smartmontools 2>/dev/null || systemctl restart smartd || true
 
 echo "==> nas-tier + timers (replaces the old nas-mover)"

@@ -186,3 +186,23 @@ smbd 比 IPv4 地址早了 0.6 秒，所以只绑上了 IPv6。IPv4 后来生效
 
 **第一版只发布了 IPv4（A 记录）**，结果 `pi.local` 能解析，但**每次都要 5.01 秒**，和第 1 条是同一个原因：macOS 会等 AAAA 查询超时。
 同时发布 IPv6 地址（AAAA）以后，降到 **0.01 秒**。IPv6 的连接会被 ufw 立即 REJECT，Mac 马上改用 IPv4，所以总的连接时间是 0.02 秒。
+
+## 19. smartd 开机启动失败：USB 硬盘还没出现
+
+Cockpit 显示 `smartmontools` **启动失败**。日志：
+
+```
+Device: /dev/disk/by-id/usb-WD_My_Passport_... [SAT], open() failed: No such device
+Unable to register device ... (no Directive -d removable). Exiting.
+```
+
+USB 硬盘开机后要先起转、完成 USB 枚举，**smartd 比它早启动**。设备行里没有 `-d removable`，smartd 就把「找不到设备」当成致命错误直接退出。
+（Debian 默认的 `DEVICESCAN` 行里带了 `-d removable`；第 10 条改成逐个写设备行的时候漏掉了它。）
+
+解决：
+- 设备行加上 `-d removable`；顺便加上 `-n standby,10,q`，例行检查不唤醒已经休眠的硬盘，不然 hd-idle 的休眠就白做了；
+- 给 `smartmontools.service` 加 `RequiresMountsFor=`，等硬盘挂载以后再启动；
+- 5TB 盘的长自检要读满整个盘面，**超过 12 小时**，改成每月一次（`L/../01/./03`）。
+
+另外值得关注：这块 WD 的 `Load_Cycle_Count`（磁头停靠次数）在 4,459 小时内已经到 280,206，平均每小时约 63 次，是 WD 移动硬盘固件空闲几秒就停靠磁头造成的。
+2.5" 盘的额定值一般在 60 万次左右，需要定期看看它涨得有多快。

@@ -105,8 +105,15 @@ CONF
 systemctl enable --now hd-idle || true
 
 echo "==> SMART monitoring"
+# Debian ships a DEVICESCAN line that makes smartd ignore explicit device lines
+sed -i 's/^DEVICESCAN/#DEVICESCAN/' /etc/smartd.conf
+# -d removable: the USB disk may not be enumerated yet when smartd starts at boot (else smartd exits)
+# -n standby,10,q: routine checks don't wake a spun-down disk. Short test daily, long test monthly.
 grep -q "^$DISK_ID" /etc/smartd.conf || \
-  echo "$DISK_ID -d sat -a -o on -S on -s (S/../.././02|L/../../6/03)" >> /etc/smartd.conf
+  echo "$DISK_ID -d sat -d removable -n standby,10,q -a -o on -S on -s (S/../.././02|L/../01/./03)" >> /etc/smartd.conf
+mkdir -p /etc/systemd/system/smartmontools.service.d
+printf '[Unit]\nRequiresMountsFor=%s\n' "$MOUNT" > /etc/systemd/system/smartmontools.service.d/after-disks.conf
+systemctl daemon-reload
 systemctl enable --now smartmontools 2>/dev/null || systemctl restart smartd || true
 
 echo "==> Firewall: LAN + Tailscale only (22 ssh, 445 smb, 5900 vnc/wayvnc if enabled, 9090 cockpit)"
