@@ -84,6 +84,7 @@ scripts/setup-nas.sh           NAS 一键安装（可重复执行）
 scripts/setup-ssd-cache.sh     NVMe 缓存层：mergerfs 合并、fstab、Samba 设置、smartd、nas-tier 定时器
 scripts/nas-tier               包含式 LRU：sync / evict / promote（装到 /usr/local/sbin）
 scripts/rename-host.sh         把主机名改成和 Bonjour 服务名一致（解决 Finder 连 NAS.local 卡 5 秒）
+scripts/mdns-alias.sh          改名后让旧主机名（比如 pi.local）继续能用（同时发布 A 和 AAAA）
 scripts/mac/copy-to-nas.sh     Mac → NAS 迁移（rsync over SSH）
 scripts/mac/verify-copy.sh     迁移后做 SHA-256 校验
 docs/design.md                 设计说明：硬件、网络、系统、服务、文件系统、安全、Mac 端使用

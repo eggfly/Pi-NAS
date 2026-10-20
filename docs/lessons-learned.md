@@ -178,3 +178,11 @@ Samba 用 netbios 名（`nas`）注册 Bonjour 服务，Finder 侧边栏里显�
 smbd 比 IPv4 地址早了 0.6 秒，所以只绑上了 IPv6。IPv4 后来生效了，smbd 也不会补绑。DHCP 续租或者 Tailscale 重连的时候，同样的问题也可能出现。
 
 **解决**：去掉 `interfaces` / `bind interfaces only`，让 smbd 监听所有地址。访问控制交给另外两层：**ufw**（445 只放行局域网和 Tailscale，其他来源一律 REJECT）和 smb.conf 里的 **`hosts allow`**。
+
+## 18. 改了主机名以后，旧书签还在找旧名字；别名要同时发布 A 和 AAAA
+
+主机名从 `pi` 改成 `nas` 以后，Finder 里旧的「连接服务器」收藏、最近使用的文件夹，以及其他 App 里的文件书签，还会去找 `pi.local`，结果弹出「连接服务器时出现问题」。
+这些引用分散在各处，很难一个个清理，所以改成让 NAS 同时响应旧名字（[`scripts/mdns-alias.sh`](../scripts/mdns-alias.sh)：一个 systemd 服务，用 `avahi-publish -a -R` 发布别名）。
+
+**第一版只发布了 IPv4（A 记录）**，结果 `pi.local` 能解析，但**每次都要 5.01 秒**，和第 1 条是同一个原因：macOS 会等 AAAA 查询超时。
+同时发布 IPv6 地址（AAAA）以后，降到 **0.01 秒**。IPv6 的连接会被 ufw 立即 REJECT，Mac 马上改用 IPv4，所以总的连接时间是 0.02 秒。
