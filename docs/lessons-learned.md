@@ -162,3 +162,19 @@ Samba 用 netbios 名（`nas`）注册 Bonjour 服务，Finder 侧边栏里显�
 
 解决：把主机名改成和服务名一样（[`scripts/rename-host.sh`](../scripts/rename-host.sh)：`hostnamectl` + `/etc/hosts` + 重启 avahi/smbd + `tailscale set --hostname`）。
 改完以后 `NAS.local` 0.02 秒就能解析出来，SMB 连接 0.01 秒。Time Machine 用的是 Bonjour 服务名，不受影响，不用重新设置。
+
+## 17. `bind interfaces only` 会让开机后的 Samba 只剩 IPv6
+
+**现象**：NAS 重启以后，Mac 连 NAS 显示「连接服务器时出现问题」；`nc` 连 IPv4 的 445 端口直接 **Connection refused**。
+`ss -ltn` 里 445 只在 `127.0.0.1`、`::1` 和公网 IPv6 地址上监听，**没有 `192.168.x.x`**。
+
+**原因**：`smb.conf` 里写了 `interfaces = lo eth0 tailscale0` + `bind interfaces only = yes`，smbd **只绑定启动那一刻已经存在的地址**。日志显示：
+
+```
+20:39:10.0   smbd 启动完成
+20:39:10.6   DHCP 才拿到 IPv4（acd pending）
+```
+
+smbd 比 IPv4 地址早了 0.6 秒，所以只绑上了 IPv6。IPv4 后来生效了，smbd 也不会补绑。DHCP 续租或者 Tailscale 重连的时候，同样的问题也可能出现。
+
+**解决**：去掉 `interfaces` / `bind interfaces only`，让 smbd 监听所有地址。访问控制交给另外两层：**ufw**（445 只放行局域网和 Tailscale，其他来源一律 REJECT）和 smb.conf 里的 **`hosts allow`**。

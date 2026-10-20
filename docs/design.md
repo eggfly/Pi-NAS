@@ -120,7 +120,7 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 
 1. **ufw**：默认拒绝所有入站。22/445/9090 只允许局域网网段和 Tailscale（`100.64.0.0/10`、`fd7a:115c:a1e0::/48`）访问，
    其他来源的连接**直接 REJECT，不是静默 DROP**，原因见 [lessons-learned.md](lessons-learned.md#1-连接-nas-每次卡-5-秒)。
-2. **Samba 只监听** `lo`、`eth0`、`tailscale0`，再加一层 `hosts allow`；smbd 等 tailscaled 启动后再启动。
+2. **Samba 的 `hosts allow`** 只允许局域网网段和 Tailscale 访问（不用 `bind interfaces only`，原因见 [lessons-learned.md](lessons-learned.md#17-bind-interfaces-only-会让开机后的-samba-只剩-ipv6)）。
 3. **SSH 只允许公钥登录**，禁止 root 登录。
 4. 用 `unattended-upgrades` **自动安装安全更新**。
 5. SMB 密码最好和 Linux 登录密码不一样：SMB 密码会存在各个设备的钥匙串里，其中一台泄露了，别人也拿不到 sudo 权限。

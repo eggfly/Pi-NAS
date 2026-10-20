@@ -81,7 +81,7 @@ echo "==> Samba"
 sed "s#@LAN_CIDR@#$LAN_CIDR#" "$HERE/configs/smb.conf" > /etc/samba/smb.conf
 chmod 644 /etc/samba/smb.conf
 testparm -s >/dev/null
-# smbd binds tailscale0 only if it exists when smbd starts -> order it after tailscaled
+# Start smbd after the network and tailscaled are up (smbd listens on all addresses; see smb.conf)
 mkdir -p /etc/systemd/system/smbd.service.d
 cat > /etc/systemd/system/smbd.service.d/after-tailscale.conf <<CONF
 [Unit]
