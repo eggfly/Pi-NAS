@@ -109,19 +109,19 @@ grep -q "^$DISK_ID" /etc/smartd.conf || \
   echo "$DISK_ID -d sat -a -o on -S on -s (S/../.././02|L/../../6/03)" >> /etc/smartd.conf
 systemctl enable --now smartmontools 2>/dev/null || systemctl restart smartd || true
 
-echo "==> Firewall: LAN + Tailscale only"
+echo "==> Firewall: LAN + Tailscale only (22 ssh, 445 smb, 5900 vnc/wayvnc if enabled, 9090 cockpit)"
 ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 for SRC in "$LAN_CIDR" 100.64.0.0/10 fd7a:115c:a1e0::/48; do
-  for PORT in 22 445 9090; do ufw allow from "$SRC" to any port "$PORT" proto tcp; done
+  for PORT in 22 445 5900 9090; do ufw allow from "$SRC" to any port "$PORT" proto tcp; done
 done
 ufw allow 5353/udp      # mDNS (Bonjour discovery on the LAN)
 ufw allow 41641/udp     # Tailscale direct connections (WireGuard)
 # REJECT (not silent DROP) everything else on these ports. Bonjour also advertises the
 # NAS's public IPv6 address and macOS tries it first; an instant RST makes it fall back
 # to IPv4 at once instead of stalling ~5 s on every SMB / Time Machine connect.
-for PORT in 22 445 9090; do ufw reject proto tcp to any port "$PORT"; done
+for PORT in 22 445 5900 9090; do ufw reject proto tcp to any port "$PORT"; done
 ufw --force enable
 
 echo "==> SSH: keys only"

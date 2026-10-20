@@ -118,7 +118,7 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 
 ### NAS 本机加固（`setup-nas.sh` 已包含）
 
-1. **ufw**：默认拒绝所有入站。22/445/9090 只允许局域网网段和 Tailscale（`100.64.0.0/10`、`fd7a:115c:a1e0::/48`）访问，
+1. **ufw**：默认拒绝所有入站。22/445/5900/9090（SSH / SMB / VNC / Cockpit）只允许局域网网段和 Tailscale（`100.64.0.0/10`、`fd7a:115c:a1e0::/48`）访问，
    其他来源的连接**直接 REJECT，不是静默 DROP**，原因见 [lessons-learned.md](lessons-learned.md#1-连接-nas-每次卡-5-秒)。
 2. **Samba 的 `hosts allow`** 只允许局域网网段和 Tailscale 访问（不用 `bind interfaces only`，原因见 [lessons-learned.md](lessons-learned.md#17-bind-interfaces-only-会让开机后的-samba-只剩-ipv6)）。
 3. **SSH 只允许公钥登录**，禁止 root 登录。
