@@ -32,6 +32,15 @@ echo "==> USB current limit"
 CFG=/boot/firmware/config.txt
 grep -q '^usb_max_current_enable=1' "$CFG" || echo 'usb_max_current_enable=1' >> "$CFG"
 
+echo "==> TCP: BBR + fq"
+# Wi-Fi clients lose ~0.1% of packets on the downlink; cubic then caps one TCP
+# connection (one SMB session) at ~10 MB/s. BBR doesn't back off on random loss.
+echo tcp_bbr > /etc/modules-load.d/bbr.conf
+printf 'net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n' > /etc/sysctl.d/90-bbr.conf
+modprobe tcp_bbr
+sysctl -q -p /etc/sysctl.d/90-bbr.conf
+tc qdisc replace dev eth0 root fq
+
 echo "==> Data disk"
 if ! blkid -L "$LABEL" >/dev/null 2>&1; then
   lsblk -o NAME,SIZE,MODEL,TRAN,FSTYPE,LABEL,MOUNTPOINT

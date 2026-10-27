@@ -87,6 +87,7 @@ scripts/rename-host.sh         把主机名改成和 Bonjour 服务名一致（�
 scripts/mdns-alias.sh          改名后让旧主机名（比如 pi.local）继续能用（同时发布 A 和 AAAA）
 scripts/mac/copy-to-nas.sh     Mac → NAS 迁移（rsync over SSH）
 scripts/mac/verify-copy.sh     迁移后做 SHA-256 校验
+scripts/mac/speedtest.sh       从 Mac 经 SSH 测每块盘的大文件 / 小文件读取速度，以及单连接和多连接的网络上限
 docs/design.md                 设计说明：硬件、网络、系统、服务、文件系统、安全、Mac 端使用
 docs/lessons-learned.md        踩坑记录（附实测数据）
 docs/ssd-cache.md              NVMe 缓存层：方案对比（bcache / bcachefs / rclone / catfs / mergerfs）、架构、安全规则、实测

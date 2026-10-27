@@ -206,3 +206,36 @@ USB 硬盘开机后要先起转、完成 USB 枚举，**smartd 比它早启动**
 
 另外值得关注：这块 WD 的 `Load_Cycle_Count`（磁头停靠次数）在 4,459 小时内已经到 280,206，平均每小时约 63 次，是 WD 移动硬盘固件空闲几秒就停靠磁头造成的。
 2.5" 盘的额定值一般在 60 万次左右，需要定期看看它涨得有多快。
+
+## 20. Mac 从 NAS 下载只有 10 MB/s：Wi-Fi 下行丢包 + cubic
+
+用 [`scripts/mac/speedtest.sh`](../scripts/mac/speedtest.sh) 实测（Mac 经 Wi-Fi 6 80MHz，NAS 网线接光猫，SSH 传 `/dev/zero`，不读硬盘）：
+
+| 方向 / 条件 | 速度 |
+|---|---|
+| Mac → NAS（上传） | 57 MB/s |
+| NAS → Mac（下载），1 条连接，cubic | **10 MB/s** |
+| NAS → Mac，4 条连接并行，cubic | 36 MB/s |
+| NAS → Mac，1 条连接，**BBR + fq** | **71 MB/s** |
+
+NAS 发往 Mac 的方向要经过路由器的 Wi-Fi 下行，大约有 0.1% 的丢包。Linux 默认的 `cubic` 把丢包当成拥塞，每丢一次就减速；
+在 6ms 左右的延迟下，单条连接被压在约 10 MB/s（Mathis 公式：MSS / RTT × 1.22 / √丢包率 ≈ 9 MB/s）。
+多条连接能叠加，所以 4 条并行快得多。Finder 的 SMB 只用一条连接，同样受影响。
+
+解决：NAS 改用 BBR（`net.ipv4.tcp_congestion_control=bbr`，配 `fq` 队列）。BBR 按测到的带宽和延迟控制发送速度，不会因为零星丢包减速，
+单条连接直接到 71 MB/s，跟并行一样快。`setup-nas.sh` 里已经加上，写在 `/etc/sysctl.d/90-bbr.conf` 和 `/etc/modules-load.d/bbr.conf`。
+
+换了 BBR 以后硬盘的差别才看得出来：2482 个小文件（123 MB），从 NVMe 拉 1.9 秒，从 USB 机械盘拉 4.7 秒。
+
+再把光猫的 5G Wi-Fi 从 149 信道 80MHz 改成 **36 信道 160MHz**（国内 149–165 只有 125MHz 宽，放不下 160MHz，只能用 36–64 这一段；
+52–64 是 DFS 信道，改完要等约 1 分钟才有信号）。同样用 BBR，Mac 在 −53 dBm、连接速率 864–1152 Mbps：
+
+| 测项 | 80MHz | 160MHz |
+|---|---|---|
+| 网络上限，1 条连接 | 71 MB/s | **80 MB/s** |
+| 网络上限，4 条连接 | 72 MB/s | **97 MB/s** |
+| 大文件：NVMe / USB 机械盘 | 64 / 60 MB/s | 83 / 67 MB/s |
+| 2482 个小文件：NVMe / USB 机械盘 | 1.9 / 4.7 秒 | 1.8 / 6.6 秒 |
+
+36 信道允许的发射功率比 149 低，信号从 −45 dBm 降到 −53 dBm，MCS 只到 4–7，所以连接速率没有翻倍。
+多条连接已经接近 NAS 千兆网口的上限（约 112 MB/s）；单条连接还受 Wi-Fi 下行的延迟和丢包影响。
