@@ -76,16 +76,12 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 
 ### 共享
 
-| 共享名 | 路径 | 用途 |
-|---|---|---|
-| `Share` | `/srv/nas/share` | 普通文件、镜像、安装包 |
-| `Media` | `/srv/nas/media` | 电影、音乐、视频 |
-| `TimeMachine` | `/srv/nas/timemachine/<用户名>` | Mac 备份，上限 3TB（`fruit:time machine max size`） |
+每块物理盘一个共享，共享名和挂载点见 [per-disk-shares.md](per-disk-shares.md)（`SSD`、`Passport`、`HDD1`–`HDD4`）。
+不提供 Time Machine。
 
-配置见 [`configs/smb.conf`](../configs/smb.conf)。要点：
+全局配置见 [`configs/smb.conf`](../configs/smb.conf)，共享由 [`scripts/setup-disks.sh`](../scripts/setup-disks.sh) 生成。要点：
 - `vfs objects = catia fruit streams_xattr` 加 `fruit:metadata = stream`：macOS 的元数据存进扩展属性，**不会产生 `._` 文件**；
-- `multicast dns register = yes`：Samba 自己向 Avahi 注册 `_smb._tcp` 和 `_adisk._tcp`（Time Machine）服务；
-- Time Machine 的上限按需调整。macOS 会提示「建议用 Mac 磁盘容量两倍以上的空间」，这只是参考值。
+- `multicast dns register = yes`：Samba 自己向 Avahi 注册 `_smb._tcp` 服务。
 
 ---
 
@@ -135,11 +131,9 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 
 ## 7. Mac 端使用
 
-- **Finder**：`⌘K` → `smb://nas.local`，同时选中 `Media` 和 `Share`。**不要手动挂载 `TimeMachine`**。
+- **Finder**：`⌘K` → `smb://nas.local`，选中要用的共享（`SSD`、`Passport`、`HDD1`…）。
 - **显示在侧边栏**：Finder → 设置 → 边栏 → 勾选「已连接的服务器」。
 - **登录时自动挂载**：系统设置 → 通用 → 登录项 → 把已挂载的共享加进去。
-- **Time Machine**：系统设置 → 通用 → 时间机器 → 添加备份磁盘 → 选「TimeMachine on NAS」，建议打开加密备份。
-  虚拟机磁盘一类一直在变的大文件，记得**加到排除列表里**。
 - 不在网络盘上生成 `.DS_Store`：`defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true`
 - 把 Mac 上的大文件挪到 NAS：用 [`scripts/mac/`](../scripts/mac) 里的脚本，先 rsync 复制，再做 SHA-256 校验，
   通过后才把原件移进废纸篓。不要用 Finder 的 `⌘` 拖拽「移动」，那样复制完会**直接删除原件，不经过废纸篓**。
@@ -149,7 +143,7 @@ CM4 的 USB 3 底板调研见 [carrier-boards-cm4.md](carrier-boards-cm4.md)。
 ## 8. 维护
 
 - 硬盘健康：`sudo smartctl -a -d sat /dev/sda`；`smartd` 每天做短测试，每周六做长测试。
-- 硬盘休眠：`hd-idle` 空闲 20 分钟后停转（Time Machine 每小时会唤醒一次，属于正常现象）。
+- 硬盘休眠：`hd-idle` 空闲 20 分钟后停转，每块 USB 硬盘单独计时。
 - 系统更新：`sudo apt full-upgrade`；固件更新：`sudo rpi-eeprom-update -a`。
-- **只有一块盘，没有冗余**。Time Machine 的备份本身就是第二份拷贝；但**只存在 NAS 上的重要文件，还要再备份到别处**。
-- NVMe 缓存层（mergerfs + nas-tier 包含式 LRU）：见 [ssd-cache.md](ssd-cache.md)，选盘见 [nvme-ssd-selection.md](nvme-ssd-selection.md)。
+- **没有冗余**：每块盘只有一份，**只存在 NAS 上的重要文件，还要再备份到别处**。
+- 每块盘一个共享、不做缓存：见 [per-disk-shares.md](per-disk-shares.md)；NVMe 选盘见 [nvme-ssd-selection.md](nvme-ssd-selection.md)。

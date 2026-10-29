@@ -1,5 +1,7 @@
 # NVMe SSD 缓存层：mergerfs + nas-tier（包含式 LRU）
 
+> **已弃用（2026-10-29）**：不再做 SSD 缓存，改成每块盘单独挂载、单独共享，见 [per-disk-shares.md](per-disk-shares.md)。下面保留作为记录。
+
 > 2026-10-20 部署并实测。硬件：CM5 IO Board 的 M.2 插 Fanxiang S630 500GB（TLC，见 [nvme-ssd-selection.md](nvme-ssd-selection.md)），
 > 后端是 5TB 的 USB 3 SMR 机械盘（WD My Passport）。
 > 脚本：[`scripts/setup-ssd-cache.sh`](../scripts/setup-ssd-cache.sh)、[`scripts/nas-tier`](../scripts/nas-tier)。

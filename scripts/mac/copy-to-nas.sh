@@ -5,8 +5,8 @@
 #   NAS=pi@nas.local bash scripts/mac/copy-to-nas.sh manifest.tsv
 #
 # manifest.tsv: one item per line, TAB-separated: <path relative to $HOME>  <NAS dest dir>
-#   Movies/SomeFilm	/srv/nas/media/Movies
-#   Downloads/musics	/srv/nas/media/Music
+#   Movies/SomeFilm	/srv/passport/media/Movies
+#   Downloads/musics	/srv/passport/media/Music
 # Each source is copied *into* its dest dir (rsync without trailing slash).
 # Re-run to resume: finished files are skipped, partial ones continue.
 set -u

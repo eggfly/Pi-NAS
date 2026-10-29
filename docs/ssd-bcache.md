@@ -1,5 +1,7 @@
 # SSD 只當快取：用 bcache 取代 nas-tier
 
+> **已弃用（2026-10-29）**：不再做 SSD 缓存，改成每块盘单独挂载、单独共享，见 [per-disk-shares.md](per-disk-shares.md)。下面保留作为记录。
+
 > 2026-10-27 調查。硬體：CM5 4GB、Fanxiang S630 500GB NVMe（目前是 nas-tier 的 `/srv/ssd`）、
 > 4 × 6TB WD Purple（CMR）在 TerraMaster 四槽 USB 外接盒（見 [multi-disk-4x6tb.md](multi-disk-4x6tb.md)）。
 > 核心 `6.18.50+rpt-rpi-2712`，`CONFIG_BCACHE=m`、`CONFIG_DM_CACHE=m`；Debian trixie 有 `bcache-tools 1.0.8`。

@@ -1,13 +1,14 @@
 #!/bin/bash
 # Measure how fast this Mac can pull data from each NAS disk: one big file and a
-# folder of small files, from the NVMe cache, the USB HDD and (optionally) a raw
+# folder of small files, from each disk in ROOTS and (optionally) a raw
 # disk, plus a network-only baseline. Drops the Pi's page cache before every run
 # so each number is a cold read from disk. Read-only on the NAS.
 #
 #   NAS=pi@nas.local bash scripts/mac/speedtest.sh
 #
 # Optional:
-#   BIG=share/Mac-Downloads/x.img   big file, relative to each disk root (must exist on both)
+#   ROOTS="/srv/ssd /srv/passport"  disk mount points to test (BIG and SMALL must exist on each)
+#   BIG=share/Mac-Downloads/x.img   big file, relative to each disk root
 #   SMALL=share/some/dir            small-file folder, relative to each disk root
 #   SIZE_MB=1024                    how much of the big file to read
 #   RAW_DEV=/dev/disk/by-id/...     also read SIZE_MB straight off this block device
@@ -20,7 +21,7 @@ SMALL="${SMALL:-share/Mac-Downloads/retro-games/cs16-client}"
 SIZE_MB="${SIZE_MB:-1024}"
 RAW_DEV="${RAW_DEV:-}"
 SMB="${SMB:-}"
-ROOTS="/srv/ssd /srv/hdd"
+ROOTS="${ROOTS:-/srv/passport}"
 SSH="ssh -o BatchMode=yes -c aes128-gcm@openssh.com"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
@@ -44,8 +45,8 @@ echo "route: ${iface:-?}"
 system_profiler SPAirPortDataType 2>/dev/null | awk '/Current Network Information:/{c=1;next} c&&/PHY Mode|Channel|Transmit Rate|Signal/{gsub(/^ +/,"");print "wifi:  "$0} c&&/Other Local/{exit}'
 
 $SSH "$NAS" "for r in $ROOTS; do test -f \$r/'$BIG' && test -d \$r/'$SMALL' || echo \"missing test data under \$r\"; done" | grep . && exit 1
-small_bytes=$($SSH "$NAS" "du -sb /srv/hdd/'$SMALL' | cut -f1")
-small_files=$($SSH "$NAS" "find /srv/hdd/'$SMALL' -type f | wc -l | tr -d ' '")
+small_bytes=$($SSH "$NAS" "du -sb ${ROOTS%% *}/'$SMALL' | cut -f1")
+small_files=$($SSH "$NAS" "find ${ROOTS%% *}/'$SMALL' -type f | wc -l | tr -d ' '")
 
 echo; echo "-- big file, ${SIZE_MB} MB over SSH"
 timed "network only, 1 stream" $SSH "$NAS" "head -c ${SIZE_MB}M /dev/zero"
