@@ -30,6 +30,16 @@ echo "==> USB current limit"
 CFG=/boot/firmware/config.txt
 grep -q '^usb_max_current_enable=1' "$CFG" || echo 'usb_max_current_enable=1' >> "$CFG"
 
+echo "==> USB: no UAS for enclosures that hang under sustained writes"
+# TerraMaster 4-bay (0480:a006): with UAS, 30 queued writes time out and the bridge resets over and over
+# (mkfs never finishes). usb-storage (Bulk-Only) is stable. Takes effect after a reboot.
+CMDLINE=/boot/firmware/cmdline.txt
+for ID in 0480:a006; do
+  if lsusb -d "$ID" >/dev/null 2>&1 && ! grep -q "usb-storage.quirks=[^ ]*$ID:u" "$CMDLINE"; then
+    sed -i "1 s/\$/ usb-storage.quirks=$ID:u/" "$CMDLINE"; echo "   $ID: UAS off (reboot needed)"
+  fi
+done
+
 echo "==> TCP: BBR + fq"
 # Wi-Fi clients lose ~0.1% of packets on the downlink; cubic then caps one TCP
 # connection (one SMB session) at ~10 MB/s. BBR doesn't back off on random loss.

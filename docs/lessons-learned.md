@@ -90,6 +90,8 @@ for PORT in 22 445 9090; do ufw reject proto tcp to any port "$PORT"; done   # �
 `lsusb -t` 显示这块盘用的是 `usb-storage` 驱动，不是 `uas`。原因是这个硬盘盒的固件**只提供了 Bulk-Only 接口**
 （`bInterfaceProtocol 80`，没有 UAS 的 `98`），不是驱动的问题。对机械盘的影响很小：连续读照样能跑到 119 MB/s，跑满千兆。
 
+> 反过来，TerraMaster 四盘位硬盘盒**支持 UAS，但在 UAS 下大量写入会卡死**，必须关掉，见 [第 21 条](#21-terramaster-硬盘盒在-uas-下大量写入会卡死)。
+
 ---
 
 ## 7. Wi-Fi 路由器：频宽比 Wi-Fi 代数更重要
@@ -239,3 +241,85 @@ NAS 发往 Mac 的方向要经过路由器的 Wi-Fi 下行，大约有 0.1% 的�
 
 36 信道允许的发射功率比 149 低，信号从 −45 dBm 降到 −53 dBm，MCS 只到 4–7，所以连接速率没有翻倍。
 多条连接已经接近 NAS 千兆网口的上限（约 112 MB/s）；单条连接还受 Wi-Fi 下行的延迟和丢包影响。
+
+---
+
+## 21. TerraMaster 硬盘盒在 UAS 下大量写入会卡死
+
+2026-10-30 格式化 4 × 6TB（TerraMaster 四盘位，USB ID `0480:a006`，内置 ASMedia ASM1074 hub，驱动 `uas`）时，
+`mkfs.ext4` 停在 `Creating journal (262144 blocks):` 不动。内核日志：
+
+- sdb 上 **30 个写命令同时卡住**（`opcode=0x8a`，WRITE(16)，每个 512 KiB），每次等 30 秒超时，
+  然后 `uas_zap_pending`、`reset SuperSpeed USB device`、`uas_eh_device_reset_handler success`，重试后又卡；
+- 20 分钟里 reset 4 次，mkfs 跑了 156 秒只写了 884 MB，之后写入速度一直是 **0 MB/s**。
+
+之前只是读或者空闲，从来没出过问题；连续大量写入、队列塞满 30 个命令才会触发，是硬盘盒固件的毛病。
+
+解决：对这个硬盘盒停用 UAS，改用 usb-storage（Bulk-Only），在 `/boot/firmware/cmdline.txt` 那一行末尾加
+
+```
+usb-storage.quirks=0480:a006:u
+```
+
+重启后日志里会有 `UAS is ignored for this device, using usb-storage instead`，`lsusb -t` 显示 `Driver=usb-storage`。
+之后 4 块盘各自格式化，`Creating journal` 几秒就完成，零 reset。`setup-nas.sh` 现在发现这个 USB ID 就会自动加上这一项。
+
+两个后遗症：
+
+- **重启卡了好几分钟**：卡住的 mkfs 处于 D 状态（不可中断睡眠，等硬盘 I/O），`kill -9` 也杀不掉，关机一直在等它。
+  这段时间 sshd 已经停了，但内核和网络还活着，看起来是「ping 得通，22/445/9090 全部 Connection refused」，像是死机，其实是关机没走完。
+  真正开机只用了 24 秒。
+- **重启后 1 号盘位整个不见了**：硬盘盒有自己的电源，Pi 重启不会重置盒子里卡住的 USB 桥接芯片，`lsusb` 里连这个设备都没有。
+  **把硬盘盒断电 10 秒再开**才回来。
+
+另外，被打断的 mkfs **不会留下卷标**（superblock 是最后一步才写的），所以重新格式化前不用先 `wipefs`。
+
+---
+
+## 22. `e2label` 改了卷标，`blkid -L` 还是找不到新名字
+
+`setup-disks.sh` 先把 `nascache` 改名成 `ssd`，紧接着用 `blkid -L ssd` 查，结果查不到，脚本以为没有这个卷，问要格式化哪块盘。
+`lsblk` 也还显示旧卷标。原因是 blkid 的缓存和 udev 的 `/dev/disk/by-label/` 链接都还是旧的，`e2label` 不会通知它们。
+
+解决：改卷标、格式化之后执行 `udevadm trigger --subsystem-match=block --action=change; udevadm settle`，
+查卷标时用 `blkid -c /dev/null -L <label>`（不用缓存，直接读盘）。fstab 里的 `LABEL=` 走的也是 by-label 链接，同样需要 trigger。
+
+---
+
+## 23. 删掉 drop-in 不 `daemon-reload`，启动 smbd 会把旧的 mergerfs 又挂回来
+
+旧方案在 `smbd.service.d/after-pool.conf` 里写了 `RequiresMountsFor=/srv/nas`。脚本删掉这个文件后，systemd 没有重新加载，
+内存里的 smbd 还依赖 `/srv/nas`；之后（包括 Ctrl-C 时重启 smbd）每次启动 smbd，systemd 都先把 mergerfs 挂上。
+结果每次重跑脚本都以为「还是旧方案」，又从头比对一遍。`systemctl` 会提示
+`The unit file ... of smbd.service changed on disk. Run 'systemctl daemon-reload'`，就是这个意思。
+
+教训：删改 unit 或 drop-in 以后，在启动任何相关服务之前先 `systemctl daemon-reload`。
+
+---
+
+## 24. Ctrl-C 不会触发 bash 的 `trap ... ERR`
+
+脚本里用 `trap 'systemctl start smbd' ERR` 保证出错时把 Samba 拉起来，但按 Ctrl-C 中断时 ERR trap 不会执行，
+smbd 就一直停着，Finder 连不上。要另外加 `trap '...; systemctl start smbd; exit 130' INT`。
+
+---
+
+## 25. 用 `rsync -c` 逐字节比对 267 GB 要将近一小时
+
+拆掉 SSD 缓存前，用 `rsync -rlnci /srv/ssd/ /srv/hdd/` 确认 SSD 上的每个文件硬盘上都有。实测：
+
+- rsync 是**先后**读两边，不是同时：发送端先把 SSD 上所有文件算一遍校验（约 450 MB/s，10 分钟），
+  接收端再读硬盘上的对应文件（My Passport 约 110 MB/s，40 分钟）；
+- 总共约 50 分钟，瓶颈是 SMR 硬盘的读取速度。
+
+只按大小比对（`--size-only`）几秒就完。SSD 上本来就是副本、最后一次 sync 也没有新文件时，按大小比对已经够了：
+`setup-disks.sh` 默认逐字节，`VERIFY=size` 只比大小。
+
+---
+
+## 26. sudo 密码输错时，提示很难看懂
+
+在终端里 `ssh -t ... sudo ...` 输错密码，PAM 打出来的是
+`When trying to update a password, this return status indicates that the value provided as the current password is not correct.`，
+看起来像是在改密码，其实就是「密码错了」，脚本根本没开始跑。看到后面没有 `==>` 开头的步骤，就是这种情况。
+

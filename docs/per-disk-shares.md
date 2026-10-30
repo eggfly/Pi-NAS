@@ -1,6 +1,8 @@
 # 去掉缓存：每块盘单独挂载、单独共享
 
-> 2026-10-29 计划，还没动手。脚本：[`scripts/setup-disks.sh`](../scripts/setup-disks.sh)。取代 [ssd-cache.md](ssd-cache.md)（mergerfs + nas-tier）和 [ssd-bcache.md](ssd-bcache.md)（bcache），
+> 2026-10-29 计划，**2026-10-30 已在 NAS 上完成**。脚本：[`scripts/setup-disks.sh`](../scripts/setup-disks.sh)；
+> Mac 上挂载全部共享：[`scripts/mac/mount-nas.command`](../scripts/mac/mount-nas.command)。
+> 过程中踩的坑（TerraMaster 硬盘盒要关 UAS 等）见 [lessons-learned.md](lessons-learned.md) 第 21–26 条。取代 [ssd-cache.md](ssd-cache.md)（mergerfs + nas-tier）和 [ssd-bcache.md](ssd-bcache.md)（bcache），
 > 也取代 [multi-disk-4x6tb.md](multi-disk-4x6tb.md) 里「4 块盘用 mergerfs 合成一个目录」的部分。
 
 **结论：不再做任何缓存（不做 LRU、不在盘之间搬数据）。6 块盘各自 ext4、各自挂载到 `/srv/<名字>`，
@@ -28,7 +30,8 @@ Samba 每块盘一个同名共享。一个名字 = 一块物理盘。** 小文�
 - 本次开机内核日志里没有 uas reset / disconnect / I/O error。
 - smartd 现在只监控 My Passport 和 NVMe；hd-idle 只管 `sda`。
 - sde 就是之前记录有 **1 个待处理扇区**（TerraMaster 序列号 …838F）的那块。
-- 「几号位」是按 hub 端口 1.1–1.4 推的，**动手前插拔一次核对一下指示灯**。
+- 「几号位」是按 hub 端口 1.1–1.4 推的；USB 序列号 …838C/D/E/F 依次对应 1–4 号位（by-id 名称里能看到）。
+- TerraMaster 硬盘盒必须关掉 UAS（`usb-storage.quirks=0480:a006:u`），否则格式化时会卡死，见 lessons-learned 第 21 条。
 
 ## 2. 新布局
 

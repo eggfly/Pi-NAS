@@ -3,7 +3,8 @@
 # Run as root from a clone of this repo (setup-nas.sh runs it too):
 #   sudo bash scripts/setup-disks.sh
 # Optional env: DISKS (default below: "<ext4 label>:<share name> ..."), NAS_USER (default: the sudo user),
-#               LAN_CIDR (default: eth0's subnet).
+#               LAN_CIDR (default: eth0's subnet),
+#               VERIFY=size (migration: compare SSD and HDD by file size only - seconds instead of an hour).
 #
 # Each disk is an ext4 volume found by its label and mounted at /srv/<label>; Samba shares it as <share name>.
 # A label that doesn't exist yet: the script lists the disks and asks which one to FORMAT for it
@@ -19,6 +20,7 @@ DISKS=${DISKS:-"ssd:SSD passport:Passport hdd1:HDD1 hdd2:HDD2 hdd3:HDD3 hdd4:HDD
 RENAMES="nasdata:passport nascache:ssd"          # old label -> new label
 NAS_USER="${NAS_USER:-${SUDO_USER:-pi}}"
 OLD_POOL=/srv/nas; OLD_HDD=/srv/hdd; OLD_SSD=/srv/ssd
+VERIFY=${VERIFY:-full}
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo"; exit 1; }
@@ -28,6 +30,8 @@ getent group nas >/dev/null || groupadd nas
 usermod -aG nas "$NAS_USER"
 apt-get install -y samba rsync parted psmisc smartmontools hd-idle >/dev/null
 
+# Look a label up by probing the disks, not via blkid's cache or udev's links (both lag behind e2label)
+bylabel() { blkid -c /dev/null -L "$1" 2>/dev/null; }
 ask_yes() { local a; read -rp "$1 Type YES: " a; [[ $a == YES ]]; }
 unmount() {   # unmount if mounted; show who holds it if busy
   mountpoint -q "$1" || return 0
@@ -37,6 +41,7 @@ unmount() {   # unmount if mounted; show who holds it if busy
 
 systemctl stop smbd
 trap 'echo "!! failed - restarting smbd"; systemctl start smbd' ERR
+trap 'echo "!! interrupted - restarting smbd"; systemctl start smbd; exit 130' INT
 
 if mountpoint -q "$OLD_POOL" || [[ -e /etc/systemd/system/nas-tier.timer ]]; then
   echo "==> Old cache setup found (mergerfs $OLD_POOL + nas-tier)"
@@ -45,8 +50,12 @@ if mountpoint -q "$OLD_POOL" || [[ -e /etc/systemd/system/nas-tier.timer ]]; the
   rm -f /etc/systemd/system/nas-tier{,-evict}.{service,timer} /etc/systemd/system/smbd.service.d/after-pool.conf
   if mountpoint -q "$OLD_SSD" && mountpoint -q "$OLD_HDD" && [[ -d $OLD_SSD/share || -d $OLD_SSD/media ]]; then
     [[ -x /usr/local/sbin/nas-tier ]] && /usr/local/sbin/nas-tier sync
-    echo "   Byte-comparing every SSD file with the HDD (reads both in full; can take an hour)..."
-    DIFF=$(rsync -rlnci --exclude=/lost+found "$OLD_SSD/" "$OLD_HDD/" | grep -v '^\.d' || true)
+    if [[ $VERIFY == size ]]; then
+      echo "   Comparing every SSD file with the HDD by size (VERIFY=size)..."; CMP=--size-only
+    else
+      echo "   Byte-comparing every SSD file with the HDD (reads both in full; can take an hour; VERIFY=size skips)..."; CMP=-c
+    fi
+    DIFF=$(rsync -rlni $CMP --exclude=/lost+found "$OLD_SSD/" "$OLD_HDD/" | grep -v '^\.d' || true)
     if [[ -n $DIFF ]]; then
       echo "!! These SSD files are missing or different on the HDD - copy them over, then re-run:"
       echo "$DIFF" | head -50 | sed 's/^/   /'
@@ -69,17 +78,18 @@ done
 echo "==> Labels"
 for R in $RENAMES; do
   OLD=${R%%:*} NEW=${R#*:}
-  if DEV=$(blkid -L "$OLD" 2>/dev/null) && ! blkid -L "$NEW" >/dev/null 2>&1; then
+  if DEV=$(bylabel "$OLD") && ! bylabel "$NEW" >/dev/null; then
     e2label "$DEV" "$NEW"; echo "   $DEV: $OLD -> $NEW"
   fi
 done
+udevadm trigger --subsystem-match=block --action=change   # refresh /dev/disk/by-label for mount LABEL=
 udevadm settle
 
 echo "==> Format disks that don't have their label yet"
 NAS_LABELS=$(for D in $DISKS $RENAMES; do echo "${D%%:*}"; done | paste -sd'|')
 for D in $DISKS; do
   L=${D%%:*}
-  blkid -L "$L" >/dev/null 2>&1 && continue
+  bylabel "$L" >/dev/null && continue
   echo "No volume labelled '$L'. Disks:"
   lsblk -o NAME,SIZE,MODEL,SERIAL,FSTYPE,LABEL,MOUNTPOINTS
   read -rp "Disk to FORMAT as '$L' (e.g. sdb; Enter to skip): " DISK
@@ -95,11 +105,11 @@ for D in $DISKS; do
   partprobe "$DEV"; udevadm settle
   PART=$(lsblk -lnpo NAME "$DEV" | sed -n 2p)
   mkfs.ext4 -F -L "$L" -m 0 -T largefile "$PART"
-  udevadm settle
+  udevadm trigger --subsystem-match=block --action=change; udevadm settle
 done
 
 PRESENT=()
-for D in $DISKS; do blkid -L "${D%%:*}" >/dev/null 2>&1 && PRESENT+=("$D"); done
+for D in $DISKS; do bylabel "${D%%:*}" >/dev/null && PRESENT+=("$D"); done
 MOUNTS=(); for D in "${PRESENT[@]}"; do MOUNTS+=("/srv/${D%%:*}"); done
 
 echo "==> fstab (by label, so a name stays with its disk whatever sdX it gets)"
@@ -154,12 +164,12 @@ mv /etc/samba/smb.conf.new /etc/samba/smb.conf
 testparm -s 2>/dev/null | grep -E '^\[|path =' | sed 's/^/   /'
 systemctl daemon-reload
 systemctl start smbd
-trap - ERR
+trap - ERR INT
 
 echo "==> Spin-down (hd-idle, 20 min) and SMART for every USB disk"
 IDLE="" SMART_IDS=()
 for M in "${MOUNTS[@]}"; do
-  PK=$(lsblk -no PKNAME "$(blkid -L "${M#/srv/}")")
+  PK=$(lsblk -no PKNAME "$(bylabel "${M#/srv/}")")
   ID=$(find /dev/disk/by-id -lname "*/$PK" -name 'usb-*' | head -1)
   [[ -n $ID ]] || continue        # NVMe: nothing to spin down; smartd line below
   IDLE+=" -a $ID -i 1200"
